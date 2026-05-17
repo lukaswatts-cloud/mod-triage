@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ModTriage — Smart Mod Queue Triage for Reddit</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ── DARK MODE (default) ─────────────────────────────────────────── */
+  :root {
+    --bg:         #1A1A1B;
+    --surface:    #272729;
+    --surface2:   #343536;
+    --surface3:   #3c3c3d;
+    --border:     #343536;
+    --border2:    #474748;
+    --orange:     #FF4500;
+    --orange-dim: #cc3700;
+    --orange-glow:rgba(255,69,0,0.15);
+    --orange-soft:rgba(255,69,0,0.10);
+    --blue:       #0DD3BB;
+    --gold:       #FFB000;
+    --green:      #46D160;
+    --red-alert:  #FF585B;
+    --text:       #D7DADC;
+    --text-dim:   #818384;
+    --text-faint: #5c5c5c;
+    --sans: 'IBM Plex Sans', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', monospace;
+    --shadow: 0 4px 16px rgba(0,0,0,0.5);
+  }
+
+  /* ── LIGHT MODE ──────────────────────────────────────────────────── */
+  html.light {
+    --bg:         #DAE0E6;
+    --surface:    #FFFFFF;
+    --surface2:   #F6F7F8;
+    --surface3:   #EDEFF1;
+    --border:     #EDEFF1;
+    --border2:    #CCC;
+    --orange:     #FF4500;
+    --orange-dim: #cc3700;
+    --orange-glow:rgba(255,69,0,0.12);
+    --orange-soft:rgba(255,69,0,0.08);
+    --blue:       #0079D3;
+    --gold:       #D4A017;
+    --green:      #46D160;
+    --red-alert:  #EA0027;
+    --text:       #1C1C1C;
+    --text-dim:   #576F76;
+    --text-faint: #9AAFB5;
+    --shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+
+  /* Smooth transition when toggling */
+  body, nav, .reddit-card, .q-wrap, .q-item, .feat-cell,
+  .flow-step, .spec-card, .setup-step, .score-table td,
+  .score-table th, footer, .code-wrap, .code-bar {
+    transition: background 0.25s ease, border-color 0.25s ease, color 0.2s ease;
+  }
+
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.6; overflow-x: hidden; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 3px; }
+
+  /* NAV */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 1rem; padding: 0 1.5rem; height: 48px;
+  }
+  .nav-logo { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 1.1rem; color: var(--text); text-decoration: none; }
+  .snoo { width: 32px; height: 32px; background: var(--orange); border-radius: 50%; display:flex; align-items:center; justify-content:center; font-size: 15px; flex-shrink:0; }
+  .nav-sub { color: var(--text-dim); font-weight: 400; font-size: 0.85rem; }
+  .nav-pill { margin-left: auto; background: var(--orange-soft); border: 1px solid rgba(255,69,0,0.3); color: var(--orange); font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.22rem 0.7rem; border-radius: 2px; }
+
+  /* THEME TOGGLE */
+  .theme-toggle {
+    display: flex; align-items: center; gap: 0.35rem;
+    background: var(--surface2); border: 1px solid var(--border2);
+    color: var(--text); font-family: var(--sans); font-size: 0.75rem;
+    font-weight: 600; padding: 0.28rem 0.75rem; border-radius: 9999px;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .theme-toggle:hover { border-color: var(--orange); color: var(--orange); }
+  html.light .theme-toggle { background: var(--surface3); }
+
+  /* HERO */
+  .hero { max-width: 1080px; margin: 0 auto; padding: 4rem 1.5rem 3rem; display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: center; min-height: calc(100vh - 48px); }
+  @media (max-width: 700px) { .hero { grid-template-columns: 1fr; gap: 2rem; min-height: auto; padding: 2rem 1rem; } }
+
+  .breadcrumb { display: flex; align-items: center; gap: 0.4rem; font-family: var(--mono); font-size: 0.65rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1.5rem; }
+  .breadcrumb .sep { color: var(--text-faint); }
+  .breadcrumb .hl { color: var(--orange); }
+
+  h1 { font-size: clamp(2.2rem, 5vw, 3.6rem); font-weight: 700; line-height: 1.06; letter-spacing: -0.03em; margin-bottom: 1rem; color: var(--text); }
+  h1 .ora { color: var(--orange); }
+
+  .hero-desc { font-size: 0.97rem; color: var(--text-dim); line-height: 1.75; max-width: 440px; margin-bottom: 2rem; }
+
+  .btn-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 0.4rem; font-family: var(--sans); font-size: 0.85rem; font-weight: 700; padding: 0.55rem 1.4rem; border-radius: 9999px; cursor: pointer; text-decoration: none; transition: all 0.15s; border: none; }
+  .btn-ora { background: var(--orange); color: #fff; }
+  .btn-ora:hover { background: #e03d00; transform: translateY(-1px); }
+  .btn-out { background: transparent; color: var(--orange); border: 1px solid var(--orange); }
+  .btn-out:hover { background: var(--orange-soft); }
+
+  /* REDDIT CARD */
+  .reddit-card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
+  .reddit-card:hover { border-color: var(--border2); }
+
+  .card-wrap { display: flex; }
+  .vote-col { display: flex; flex-direction: column; align-items: center; background: var(--surface2); padding: 0.5rem 0.4rem; gap: 0.2rem; min-width: 40px; }
+  .vote-up { font-size: 1rem; cursor: pointer; color: var(--orange); }
+  .vote-dn { font-size: 1rem; cursor: pointer; color: var(--text-dim); }
+  .vote-ct { font-size: 0.68rem; font-weight: 700; color: var(--orange); }
+
+  .card-body { padding: 0.5rem 0.75rem; flex: 1; min-width: 0; }
+  .card-meta { font-size: 0.68rem; color: var(--text-dim); margin-bottom: 0.4rem; }
+  .card-meta .sub { color: var(--text); font-weight: 700; }
+  .card-flair { display: inline-flex; align-items: center; background: var(--orange-soft); color: var(--orange); border: 1px solid rgba(255,69,0,0.25); font-size: 0.62rem; font-weight: 700; padding: 0.12rem 0.45rem; border-radius: 2px; margin-bottom: 0.35rem; letter-spacing: 0.04em; }
+  .card-title { font-size: 0.95rem; font-weight: 500; color: var(--text); margin-bottom: 0.5rem; line-height: 1.35; }
+  .card-acts { display: flex; gap: 0.2rem; margin-top: 0.4rem; }
+  .card-act { display: flex; align-items: center; gap: 0.25rem; font-size: 0.68rem; font-weight: 700; color: var(--text-dim); background: transparent; border: none; border-radius: 2px; padding: 0.25rem 0.45rem; cursor: pointer; }
+  .card-act:hover { background: var(--surface2); color: var(--text); }
+  .card-act.ora { color: var(--orange); }
+  .card-act.ora:hover { background: var(--orange-soft); }
+
+  /* QUEUE INSIDE CARD */
+  .q-wrap { border: 1px solid var(--border); border-radius: 4px; overflow: hidden; margin-top: 0.5rem; }
+
+  .stats-row { display: grid; grid-template-columns: repeat(4,1fr); border-bottom: 1px solid var(--border); }
+  .stat-cell { padding: 0.4rem 0; text-align: center; border-right: 1px solid var(--border); }
+  .stat-cell:last-child { border-right: none; }
+  .s-val { display: block; font-size: 1.05rem; font-weight: 700; line-height: 1.1; }
+  .s-lbl { display: block; font-family: var(--mono); font-size: 0.5rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.07em; margin-top: 0.1rem; }
+
+  .q-head { background: var(--surface2); border-bottom: 1px solid var(--border); padding: 0.4rem 0.7rem; display: flex; align-items: center; justify-content: space-between; }
+  .q-head-title { font-family: var(--mono); font-size: 0.62rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.1em; }
+  .cnt-badge { font-family: var(--mono); font-size: 0.58rem; background: var(--orange-soft); color: var(--orange); border: 1px solid rgba(255,69,0,0.3); padding: 0.08rem 0.4rem; border-radius: 2px; transition: all 0.3s; }
+
+  .q-item { display: flex; align-items: stretch; border-bottom: 1px solid var(--border); background: var(--bg); cursor: pointer; transition: background 0.1s; overflow: hidden; max-height: 80px; transition: max-height 0.3s ease, opacity 0.25s, padding 0.25s, border-width 0.2s; }
+  .q-item:last-child { border-bottom: none; }
+  .q-item:hover { background: rgba(255,255,255,0.02); }
+  .q-item.gone { max-height: 0 !important; opacity: 0; padding: 0; border-width: 0; }
+
+  .q-bar { width: 3px; flex-shrink: 0; }
+  .q-bar.c { background: var(--red-alert); }
+  .q-bar.h { background: var(--orange); }
+  .q-bar.m { background: var(--blue); }
+  .q-bar.l { background: var(--text-dim); }
+
+  .q-cnt { flex: 1; padding: 0.45rem 0.55rem; min-width: 0; }
+  .q-ttl { font-size: 0.72rem; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 0.2rem; }
+  .q-mta { display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; }
+
+  .pill { font-size: 0.56rem; font-weight: 700; padding: 0.08rem 0.32rem; border-radius: 2px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .p-r { background: rgba(255,88,91,0.14); color: var(--red-alert); border: 1px solid rgba(255,88,91,0.28); }
+  .p-o { background: var(--orange-soft); color: var(--orange); border: 1px solid rgba(255,69,0,0.28); }
+  .p-b { background: rgba(13,211,187,0.1); color: var(--blue); border: 1px solid rgba(13,211,187,0.28); }
+  .p-g { background: rgba(129,131,132,0.1); color: var(--text-dim); border: 1px solid rgba(129,131,132,0.2); }
+
+  .q-txt { font-size: 0.58rem; color: var(--text-faint); }
+  .q-acts { display: flex; flex-direction: column; justify-content: center; padding: 0.35rem 0.45rem; gap: 0.25rem; flex-shrink: 0; }
+  .q-btn { font-family: var(--sans); font-size: 0.58rem; font-weight: 700; padding: 0.18rem 0.45rem; border-radius: 9999px; border: 1px solid; cursor: pointer; white-space: nowrap; transition: all 0.1s; }
+  .q-btn-r { color: var(--red-alert); border-color: rgba(255,88,91,0.35); background: rgba(255,88,91,0.05); }
+  .q-btn-r:hover { background: rgba(255,88,91,0.18); }
+  .q-btn-a { color: var(--green); border-color: rgba(70,209,96,0.35); background: rgba(70,209,96,0.05); }
+  .q-btn-a:hover { background: rgba(70,209,96,0.18); }
+
+  /* DIVIDER */
+  .divider { width: 100%; height: 1px; background: var(--border); }
+
+  /* SECTIONS */
+  .section { max-width: 1080px; margin: 0 auto; padding: 4rem 1.5rem; }
+  .eyebrow { font-family: var(--mono); font-size: 0.63rem; color: var(--orange); text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 0.65rem; display: flex; align-items: center; gap: 0.5rem; }
+  .eyebrow::before { content: ''; width: 1.2rem; height: 2px; background: var(--orange); border-radius: 1px; }
+  h2 { font-size: clamp(1.5rem, 3vw, 2.3rem); font-weight: 700; letter-spacing: -0.02em; color: var(--text); margin-bottom: 0.65rem; line-height: 1.15; }
+  h2 .ora { color: var(--orange); }
+  .sub-txt { color: var(--text-dim); font-size: 0.92rem; max-width: 540px; line-height: 1.75; margin-bottom: 2.5rem; }
+
+  /* FLOW */
+  .flow { display: grid; grid-template-columns: repeat(4,1fr); }
+  @media (max-width: 700px) { .flow { grid-template-columns: 1fr 1fr; } }
+  .flow-step { padding: 1.4rem 1rem; background: var(--surface); border: 1px solid var(--border); border-right: none; position: relative; }
+  .flow-step:last-child { border-right: 1px solid var(--border); }
+  .flow-step::after { content: '›'; position: absolute; right: -0.6rem; top: 50%; transform: translateY(-50%); color: var(--orange); font-size: 1.2rem; font-weight: 700; z-index: 1; }
+  .flow-step:last-child::after { display: none; }
+  .f-num { font-family: var(--mono); font-size: 0.6rem; color: var(--orange); margin-bottom: 0.4rem; letter-spacing: 0.04em; }
+  .f-ttl { font-size: 0.82rem; font-weight: 700; color: var(--text); margin-bottom: 0.25rem; }
+  .f-dsc { font-size: 0.72rem; color: var(--text-dim); line-height: 1.5; }
+
+  /* FEATURES */
+  .feat-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  @media (max-width: 700px) { .feat-grid { grid-template-columns: 1fr; } }
+  .feat-cell { background: var(--surface); padding: 1.4rem; transition: background 0.15s; }
+  .feat-cell:hover { background: var(--surface2); }
+  .feat-icon { font-size: 1.3rem; margin-bottom: 0.65rem; display: block; }
+  .feat-ttl { font-size: 0.87rem; font-weight: 700; color: var(--text); margin-bottom: 0.3rem; }
+  .feat-dsc { font-size: 0.77rem; color: var(--text-dim); line-height: 1.6; }
+
+  /* SCORE TABLE */
+  .score-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 1.5rem; }
+  .score-table th { background: var(--surface2); padding: 0.55rem 1rem; text-align: left; font-family: var(--mono); font-size: 0.62rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 2px solid var(--orange); }
+  .score-table td { padding: 0.5rem 1rem; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+  .score-table tr:hover td { background: var(--surface); }
+  .pts { font-family: var(--mono); color: var(--orange); font-weight: 600; text-align: right; }
+  .legend { display: flex; gap: 1.5rem; margin-top: 1rem; flex-wrap: wrap; font-family: var(--mono); font-size: 0.7rem; font-weight: 700; }
+  .l-c { color: var(--red-alert); } .l-h { color: var(--orange); } .l-m { color: var(--blue); } .l-l { color: var(--text-dim); }
+
+  /* CODE */
+  .code-wrap { background: #0d0d0e; border: 1px solid var(--border); border-radius: 4px; overflow: auto; margin-top: 1.5rem; }
+  html.light .code-wrap { background: #1e1e2e; }
+  html.light .code-body { color: #a0b0a5; }
+  .code-bar { background: var(--surface2); border-bottom: 1px solid var(--border); padding: 0.45rem 1rem; display: flex; align-items: center; gap: 0.4rem; }
+  .cd { width: 10px; height: 10px; border-radius: 50%; }
+  .cdr { background: #FF5F57; } .cdy { background: #FFBD2E; } .cdg { background: #28C840; }
+  .code-fn { font-family: var(--mono); font-size: 0.62rem; color: var(--text-dim); margin-left: 0.3rem; }
+  .code-body { padding: 1.2rem 1.25rem; font-family: var(--mono); font-size: 0.7rem; line-height: 1.95; color: #8a9a8d; }
+  .ck { color: #d97cff; } .cs { color: var(--gold); } .cn { color: var(--orange); } .cf { color: var(--blue); } .cc { color: #4a5e4d; font-style: italic; } .ct { color: #7de87d; }
+
+  /* SPEC */
+  .spec-list { display: flex; flex-direction: column; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .spec-card { background: var(--surface); }
+  .spec-head { background: var(--surface2); border-bottom: 1px solid var(--border); padding: 0.65rem 1rem; display: flex; align-items: center; gap: 0.7rem; }
+  .spec-lbl { font-family: var(--mono); font-size: 0.58rem; background: var(--orange-soft); color: var(--orange); border: 1px solid rgba(255,69,0,0.3); padding: 0.12rem 0.45rem; border-radius: 2px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .spec-ttl { font-size: 0.83rem; font-weight: 600; color: var(--text); }
+  .spec-body { padding: 1rem; font-size: 0.8rem; color: var(--text-dim); line-height: 1.8; }
+  .spec-body strong { color: var(--text); }
+  .spec-body ul { list-style: none; margin-top: 0.65rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  .spec-body ul li::before { content: '→ '; color: var(--orange); font-family: var(--mono); font-weight: 600; }
+
+  /* SETUP */
+  .setup { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; margin-top: 1.5rem; }
+  .setup-step { display: flex; gap: 1rem; padding: 1rem 1.2rem; border-bottom: 1px solid var(--border); align-items: flex-start; background: var(--surface); transition: background 0.1s; }
+  .setup-step:last-child { border-bottom: none; }
+  .setup-step:hover { background: var(--surface2); }
+  .snum { width: 24px; height: 24px; border-radius: 50%; background: var(--orange); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; flex-shrink: 0; margin-top: 0.1rem; }
+  .sttl { font-size: 0.83rem; font-weight: 700; color: var(--text); margin-bottom: 0.2rem; }
+  .sdsc { font-size: 0.75rem; color: var(--text-dim); line-height: 1.5; }
+  .ic { background: var(--surface2); color: var(--blue); font-family: var(--mono); font-size: 0.68rem; padding: 0.08rem 0.3rem; border-radius: 2px; border: 1px solid var(--border); }
+
+  /* FOOTER */
+  footer { border-top: 1px solid var(--border); padding: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+  .foot-logo { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; color: var(--text); }
+  .foot-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--orange); }
+  .foot-note { font-family: var(--mono); font-size: 0.6rem; color: var(--text-dim); text-align: right; line-height: 1.8; }
+
+  /* ANIMATIONS */
+  @keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
+  .hero-left > * { animation: fadeUp 0.5s ease both; }
+  .hero-left > *:nth-child(1) { animation-delay: 0.05s; }
+  .hero-left > *:nth-child(2) { animation-delay: 0.12s; }
+  .hero-left > *:nth-child(3) { animation-delay: 0.19s; }
+  .hero-left > *:nth-child(4) { animation-delay: 0.26s; }
+  @keyframes cardIn { from { opacity:0; transform:translateX(18px); } to { opacity:1; transform:translateX(0); } }
+  .hero-right { animation: cardIn 0.6s 0.2s ease both; }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,88,91,0.4);} 50%{box-shadow:0 0 0 4px rgba(255,88,91,0);} }
+  .pulse { animation: pulse 2s infinite; }
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-logo" href="#">
+    <div class="snoo">🛡️</div>
+    <span>ModTriage</span>
+    <span class="nav-sub">· by Devvit</span>
+  </a>
+  <div class="nav-pill">Live on Reddit · v0.0.3</div>
+  <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+    <span id="themeIcon">☀️</span>
+    <span id="themeLabel">Light</span>
+  </button>
+</nav>
+
+<div class="hero">
+  <div class="hero-left">
+    <div class="breadcrumb">
+      <span>developers.reddit.com</span><span class="sep"> › </span>
+      <span>apps</span><span class="sep"> › </span>
+      <span class="hl">modtriage · Published</span>
+    </div>
+    <h1>Smart queue<br>triage for every<br><span class="ora">subreddit.</span></h1>
+    <p class="hero-desc">
+      ModTriage automatically classifies and prioritises your mod queue by severity — so your team actions what actually matters, not whatever arrived most recently.
+    </p>
+    <div class="btn-row">
+      <a href="https://developers.reddit.com/apps/modtriage" target="_blank" class="btn btn-ora">↗ Install on Reddit</a>
+      <a href="#demo" class="btn btn-out">See it working</a>
+    </div>
+  </div>
+
+  <div class="hero-right">
+    <div class="reddit-card">
+      <div class="card-wrap">
+        <div class="vote-col">
+          <div class="vote-up">▲</div>
+          <div class="vote-ct">4.7k</div>
+          <div class="vote-dn">▼</div>
+        </div>
+        <div class="card-body">
+          <div class="card-meta">Posted by u/ModBot in <span class="sub">r/devvit</span> · 3 hours ago</div>
+          <div class="card-flair">📋 ModTriage Dashboard</div>
+          <div class="card-title">ModTriage is live — click to open the priority queue</div>
+
+          <!-- Embedded dashboard preview -->
+          <div class="q-wrap" id="demo">
+            <div class="stats-row">
+              <div class="stat-cell"><span class="s-val" style="color:var(--red-alert)" id="cc">2</span><span class="s-lbl">Critical</span></div>
+              <div class="stat-cell"><span class="s-val" style="color:var(--orange)" id="ch">2</span><span class="s-lbl">High</span></div>
+              <div class="stat-cell"><span class="s-val" style="color:var(--blue)" id="cm">1</span><span class="s-lbl">Medium</span></div>
+              <div class="stat-cell"><span class="s-val" style="color:var(--text-dim)" id="cl">1</span><span class="s-lbl">Low</span></div>
+            </div>
+            <div class="q-head">
+              <span class="q-head-title">Priority Queue</span>
+              <span class="cnt-badge" id="tb">6 items</span>
+            </div>
+
+            <div id="qi">
+              <div class="q-item" data-p="c">
+                <div class="q-bar c"></div>
+                <div class="q-cnt">
+                  <div class="q-ttl">Posting personal address + threatening DMs — u/throwacc_9182</div>
+                  <div class="q-mta"><span class="pill p-r pulse">🔴 Critical</span><span class="pill p-g">Doxxing</span><span class="q-txt">2 prior bans · 12 reports</span></div>
+                </div>
+                <div class="q-acts">
+                  <button class="q-btn q-btn-r" onclick="go(this,'c')">Remove+Ban</button>
+                  <button class="q-btn q-btn-a" onclick="go(this,'c',1)">Approve</button>
+                </div>
+              </div>
+
+              <div class="q-item" data-p="c">
+                <div class="q-bar c"></div>
+                <div class="q-cnt">
+                  <div class="q-ttl">Self-harm content in comments — u/anon_4411</div>
+                  <div class="q-mta"><span class="pill p-r">🔴 Critical</span><span class="pill p-g">Crisis Content</span><span class="q-txt">AutoMod flagged · 3 reports</span></div>
+                </div>
+                <div class="q-acts">
+                  <button class="q-btn q-btn-r" onclick="go(this,'c')">Remove</button>
+                </div>
+              </div>
+
+              <div class="q-item" data-p="h">
+                <div class="q-bar h"></div>
+                <div class="q-cnt">
+                  <div class="q-ttl">Misleading headline on 14K upvote post — Rule 4</div>
+                  <div class="q-mta"><span class="pill p-o">🟠 High</span><span class="pill p-g">Misinfo</span><span class="q-txt">14.2K upvotes · 6 reports</span></div>
+                </div>
+                <div class="q-acts">
+                  <button class="q-btn q-btn-r" onclick="go(this,'h')">Remove</button>
+                  <button class="q-btn q-btn-a" onclick="go(this,'h',1)">Approve</button>
+                </div>
+              </div>
+
+              <div class="q-item" data-p="h">
+                <div class="q-bar h"></div>
+                <div class="q-cnt">
+                  <div class="q-ttl">Spam wave: 23 posts from new accounts, same domain</div>
+                  <div class="q-mta"><span class="pill p-o">🟠 High</span><span class="pill p-g">Spam</span><span class="q-txt">23 posts · 15 new accs</span></div>
+                </div>
+                <div class="q-acts">
+                  <button class="q-btn q-btn-r" onclick="go(this,'h')">Bulk Remove</button>
+                </div>
+              </div>
+
+              <div class="q-item" data-p="m">
+                <div class="q-bar m"></div>
+                <div class="q-cnt">
+                  <div class="q-ttl">Possible satire post misread as news — borderline Rule 4</div>
+                  <div class="q-mta"><span class="pill p-b">🔵 Medium</span><span class="q-txt">2 reports · 890 upvotes</span></div>
+                </div>
+                <div class="q-acts">
+                  <button class="q-btn q-btn-r" onclick="go(this,'m')">Remove</button>
+                  <button class="q-btn q-btn-a" onclick="go(this,'m',1)">Approve</button>
+                </div>
+              </div>
+
+              <div class="q-item" data-p="l">
+                <div class="q-bar l"></div>
+                <div class="q-cnt">
+                  <div class="q-ttl">Repost — duplicate of top post from 4 days ago</div>
+                  <div class="q-mta"><span class="pill p-g">⚪ Low</span><span class="q-txt">1 report · 12 upvotes</span></div>
+                </div>
+                <div class="q-acts">
+                  <button class="q-btn q-btn-r" onclick="go(this,'l')">Remove</button>
+                </div>
+              </div>
+            </div>
+          </div><!-- /.q-wrap -->
+
+          <div class="card-acts">
+            <button class="card-act ora">💬 47 Comments</button>
+            <button class="card-act">⬆ Share</button>
+            <button class="card-act">⭐ Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- HOW IT WORKS -->
+<div class="section">
+  <div class="eyebrow">How it works</div>
+  <h2>Report in.<br><span class="ora">Priority queue out.</span></h2>
+  <p class="sub-txt">Four automatic steps happen the moment a user files a report. Mods see a pre-sorted, pre-classified queue — never a raw chronological pile.</p>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="f-num">01 · TRIGGER</div>
+      <div class="f-ttl">Report received</div>
+      <div class="f-dsc">PostReport / CommentReport trigger fires instantly. ModTriage fetches item and author data.</div>
+    </div>
+    <div class="flow-step">
+      <div class="f-num">02 · SCORE</div>
+      <div class="f-ttl">Priority scored</div>
+      <div class="f-dsc">10 signals combine into a 0–150 score: age, karma, prior bans, report count, keywords.</div>
+    </div>
+    <div class="flow-step">
+      <div class="f-num">03 · STORE</div>
+      <div class="f-ttl">Saved to Redis</div>
+      <div class="f-dsc">Item saved to Devvit Redis sorted set. Top scores always float to the top.</div>
+    </div>
+    <div class="flow-step">
+      <div class="f-num">04 · ACT</div>
+      <div class="f-ttl">Mods decide</div>
+      <div class="f-dsc">Dashboard shows critical first. One tap to remove, approve, or ban. All actions logged.</div>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- FEATURES -->
+<div class="section">
+  <div class="eyebrow">Features</div>
+  <h2>Built for real <span class="ora">mod teams.</span></h2>
+  <div class="feat-grid">
+    <div class="feat-cell"><span class="feat-icon">⚡</span><div class="feat-ttl">Smart Priority Scoring</div><p class="feat-dsc">10 signals → one score. Critical items always surface first. Never miss a TOS violation buried under reposts.</p></div>
+    <div class="feat-cell"><span class="feat-icon">🔍</span><div class="feat-ttl">Pattern Detection</div><p class="feat-dsc">Repeated domain tracking flags spam waves. Accounts with prior bans score higher automatically — forever.</p></div>
+    <div class="feat-cell"><span class="feat-icon">🔔</span><div class="feat-ttl">Critical Alerts</div><p class="feat-dsc">Scheduler checks every 5 minutes. Critical items unactioned past your alert window trigger a mod-mail ping.</p></div>
+    <div class="feat-cell"><span class="feat-icon">📊</span><div class="feat-ttl">Audit Log + Reports</div><p class="feat-dsc">Every removal, approval, and ban logged to Redis with mod username and timestamp. One-click report generation.</p></div>
+    <div class="feat-cell"><span class="feat-icon">⚙️</span><div class="feat-ttl">Zero-Config Start</div><p class="feat-dsc">Works immediately after install. Add custom keywords, alert windows, and thresholds whenever you're ready.</p></div>
+    <div class="feat-cell"><span class="feat-icon">🏗️</span><div class="feat-ttl">100% Reddit-Native</div><p class="feat-dsc">Devvit Redis, Scheduler, Triggers. No external APIs. No data leaves Reddit's infrastructure.</p></div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- SCORING -->
+<div class="section">
+  <div class="eyebrow">Scoring</div>
+  <h2>Points-based, <span class="ora">transparent</span>,<br>and configurable.</h2>
+  <p class="sub-txt">Every mod sees exactly why an item scored a certain way. Reasons appear on every card in the dashboard.</p>
+  <table class="score-table">
+    <thead><tr><th>Signal</th><th style="text-align:right">Points</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Account &lt; 1 day old</td><td class="pts">+35</td><td>Highest new-account risk</td></tr>
+      <tr><td>Account &lt; 7 days old</td><td class="pts">+25</td><td></td></tr>
+      <tr><td>Account &lt; 30 days old</td><td class="pts">+12</td><td></td></tr>
+      <tr><td>Negative karma</td><td class="pts">+20</td><td></td></tr>
+      <tr><td>Very low karma (&lt;10)</td><td class="pts">+10</td><td></td></tr>
+      <tr><td>Prior ban in this sub</td><td class="pts">+20 each (cap 60)</td><td>Tracked via ModAction trigger</td></tr>
+      <tr><td>Prior removals &gt; 2</td><td class="pts">+5 each (cap 25)</td><td></td></tr>
+      <tr><td>10+ reports</td><td class="pts">+40</td><td></td></tr>
+      <tr><td>5–9 reports</td><td class="pts">+25</td><td></td></tr>
+      <tr><td>Critical keyword match</td><td class="pts">+50</td><td>Doxxing, threats, crisis terms</td></tr>
+      <tr><td>High-priority keyword</td><td class="pts">+25</td><td>Spam, brigading, scam terms</td></tr>
+      <tr><td>Harassment in report reason</td><td class="pts">+20</td><td></td></tr>
+      <tr><td>Repeated external domain</td><td class="pts">+20</td><td>Spam wave detection</td></tr>
+    </tbody>
+  </table>
+  <div class="legend">
+    <span class="l-c">🔴 CRITICAL ≥ 80</span>
+    <span class="l-h">🟠 HIGH ≥ 45</span>
+    <span class="l-m">🔵 MEDIUM ≥ 20</span>
+    <span class="l-l">⚪ LOW &lt; 20</span>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- CODE -->
+<div class="section">
+  <div class="eyebrow">Implementation</div>
+  <h2>Clean TypeScript,<br><span class="ora">Devvit-native</span> patterns.</h2>
+  <div class="code-wrap">
+    <div class="code-bar">
+      <div class="cd cdr"></div><div class="cd cdy"></div><div class="cd cdg"></div>
+      <span class="code-fn">src/scorer.ts — priority scoring engine (pure, testable)</span>
+    </div>
+    <div class="code-body">
+<span class="cc">// Pure function — no side-effects, fully unit-testable</span>
+<span class="ck">export function</span> <span class="cf">scoreItem</span>(
+  input: <span class="ct">ScoringInput</span>, config: <span class="ct">ModTriageConfig</span> = DEFAULT_CONFIG
+): <span class="ct">TriageScore</span> {
+  <span class="ck">let</span> score = <span class="cn">0</span>;
+  <span class="ck">const</span> reasons: <span class="ct">string</span>[] = [];
+
+  <span class="cc">// 1. Account age → highest risk for brand-new accounts</span>
+  <span class="ck">if</span> (input.authorAccountAgeDays &lt; <span class="cn">1</span>)       { score += <span class="cn">35</span>; reasons.push(<span class="cs">'account &lt; 1 day'</span>); }
+  <span class="ck">else if</span> (input.authorAccountAgeDays &lt; <span class="cn">7</span>)  { score += <span class="cn">25</span>; reasons.push(<span class="cs">'account &lt; 7 days'</span>); }
+  <span class="ck">else if</span> (input.authorAccountAgeDays &lt; <span class="cn">30</span>) { score += <span class="cn">12</span>; }
+
+  <span class="cc">// 2. Prior history — bans compound, stored in Devvit Redis</span>
+  <span class="ck">if</span> (input.authorPriorBanCount &gt; <span class="cn">0</span>) {
+    score += Math.min(input.authorPriorBanCount * <span class="cn">20</span>, <span class="cn">60</span>);
+    reasons.push(<span class="cs">`${input.authorPriorBanCount} prior ban(s)`</span>);
+  }
+
+  <span class="cc">// 3. Critical keyword → instant +50, bubble to top</span>
+  <span class="ck">const</span> crit = <span class="cf">matchesAny</span>(fullText, config.criticalKeywords);
+  <span class="ck">if</span> (crit.length) { score += <span class="cn">50</span>; reasons.push(<span class="cs">`keyword: "${crit[0]}"`</span>); }
+
+  <span class="cc">// Bucket: ≥80 critical · ≥45 high · ≥20 medium · else low</span>
+  <span class="ck">return</span> { priority: score >= <span class="cn">80</span> ? <span class="cs">'critical'</span> : score >= <span class="cn">45</span> ? <span class="cs">'high'</span> : score >= <span class="cn">20</span> ? <span class="cs">'medium'</span> : <span class="cs">'low'</span>, score, reasons };
+}
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- LIVE APP SHOWCASE -->
+<div class="section" id="submission">
+  <div class="eyebrow">Live App</div>
+  <h2>Actually built.<br><span class="ora">Actually working.</span></h2>
+  <p class="sub-txt">ModTriage is published on Reddit's Developer Platform and installed on a live test subreddit. Here's what mods actually see.</p>
+
+  <!-- Real mod-mail output mockup -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:2rem;">
+    <div style="background:var(--surface2);border-bottom:1px solid var(--border);padding:0.6rem 1rem;display:flex;align-items:center;gap:0.75rem;">
+      <span style="font-family:var(--mono);font-size:0.6rem;color:var(--orange);background:var(--orange-soft);border:1px solid rgba(255,69,0,0.3);padding:0.1rem 0.4rem;border-radius:2px;">REAL OUTPUT</span>
+      <span style="font-size:0.82rem;font-weight:600;color:var(--text);">Mod Discussions — What mods actually receive</span>
+    </div>
+
+    <!-- Alert notification -->
+    <div style="border-bottom:1px solid var(--border);padding:1rem;background:rgba(255,88,91,0.04);">
+      <div style="display:flex;align-items:flex-start;gap:0.75rem;">
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--orange);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">🛡️</div>
+        <div style="flex:1;">
+          <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:0.3rem;">u/modtriage · r/modtriage_dev · 9:55 PM</div>
+          <div style="font-size:0.9rem;font-weight:700;color:var(--red-alert);margin-bottom:0.4rem;">[notification] [ModTriage] ⚠️ 1 Critical Item(s) Need Attention</div>
+          <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.7;">
+            ⚠️ <strong style="color:var(--text);">ModTriage Alert</strong> — 1 critical item(s) awaiting action for 15+ minutes<br>
+            1. <span style="color:var(--blue);text-decoration:underline;cursor:pointer;">I know where you live — doxxing threat</span> — u/anon_threat<br><br>
+            <em>Please review the ModTriage dashboard to take action.</em>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live dashboard output -->
+    <div style="padding:1rem;">
+      <div style="display:flex;align-items:flex-start;gap:0.75rem;">
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--orange);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">🛡️</div>
+        <div style="flex:1;">
+          <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:0.3rem;">u/modtriage · r/modtriage_dev · 9:38 PM</div>
+          <div style="font-size:0.9rem;font-weight:700;color:var(--text);margin-bottom:0.75rem;">[ModTriage] Live Dashboard — Fri, 15 May 2026 11:38:17 GMT</div>
+
+          <div style="font-size:0.85rem;font-weight:700;color:var(--text);margin-bottom:0.5rem;">Queue Summary</div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:1rem;margin-bottom:1rem;">
+            <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:700;color:var(--red-alert);">1</div><div style="font-size:0.62rem;color:var(--text-dim);font-family:var(--mono);text-transform:uppercase;">🔴 Critical</div></div>
+            <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:700;color:var(--orange);">3</div><div style="font-size:0.62rem;color:var(--text-dim);font-family:var(--mono);text-transform:uppercase;">🟠 High</div></div>
+            <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:700;color:var(--blue);">0</div><div style="font-size:0.62rem;color:var(--text-dim);font-family:var(--mono);text-transform:uppercase;">🟡 Medium</div></div>
+            <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:700;color:var(--green);">1</div><div style="font-size:0.62rem;color:var(--text-dim);font-family:var(--mono);text-transform:uppercase;">🟢 Low</div></div>
+            <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:700;color:var(--text);">5</div><div style="font-size:0.62rem;color:var(--text-dim);font-family:var(--mono);text-transform:uppercase;">Total</div></div>
+          </div>
+
+          <div style="font-size:0.85rem;font-weight:700;color:var(--text);margin-bottom:0.5rem;">Top Pending Items (by score)</div>
+          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
+            <thead><tr style="border-bottom:2px solid var(--orange);">
+              <th style="text-align:left;padding:0.4rem 0.6rem;font-family:var(--mono);font-size:0.6rem;color:var(--text-dim);text-transform:uppercase;">Priority</th>
+              <th style="text-align:left;padding:0.4rem 0.6rem;font-family:var(--mono);font-size:0.6rem;color:var(--text-dim);text-transform:uppercase;">Content</th>
+              <th style="text-align:left;padding:0.4rem 0.6rem;font-family:var(--mono);font-size:0.6rem;color:var(--text-dim);text-transform:uppercase;">Author</th>
+              <th style="text-align:left;padding:0.4rem 0.6rem;font-family:var(--mono);font-size:0.6rem;color:var(--text-dim);text-transform:uppercase;">Report Reason</th>
+              <th style="text-align:right;padding:0.4rem 0.6rem;font-family:var(--mono);font-size:0.6rem;color:var(--text-dim);text-transform:uppercase;">Score</th>
+            </tr></thead>
+            <tbody>
+              <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.4rem 0.6rem;"><span style="color:var(--red-alert);font-weight:700;">🔴 CRITICAL</span></td><td style="padding:0.4rem 0.6rem;color:var(--blue);">POST</td><td style="padding:0.4rem 0.6rem;color:var(--text-dim);">u/anon_threat</td><td style="padding:0.4rem 0.6rem;color:var(--text-dim);font-style:italic;">threatening violence</td><td style="padding:0.4rem 0.6rem;text-align:right;color:var(--orange);font-family:var(--mono);font-weight:700;">95</td></tr>
+              <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.4rem 0.6rem;"><span style="color:var(--orange);font-weight:700;">🟠 HIGH</span></td><td style="padding:0.4rem 0.6rem;color:var(--blue);">CMT</td><td style="padding:0.4rem 0.6rem;color:var(--text-dim);">u/cryptoscammer</td><td style="padding:0.4rem 0.6rem;color:var(--text-dim);font-style:italic;">spam / scam link</td><td style="padding:0.4rem 0.6rem;text-align:right;color:var(--orange);font-family:var(--mono);font-weight:700;">78</td></tr>
+              <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.4rem 0.6rem;"><span style="color:var(--orange);font-weight:700;">🟠 HIGH</span></td><td style="padding:0.4rem 0.6rem;color:var(--blue);">POST</td><td style="padding:0.4rem 0.6rem;color:var(--text-dim);">u/spambot_99</td><td style="padding:0.4rem 0.6rem;color:var(--text-dim);font-style:italic;">spam</td><td style="padding:0.4rem 0.6rem;text-align:right;color:var(--orange);font-family:var(--mono);font-weight:700;">62</td></tr>
+              <tr style="border-bottom:1px solid var(--border);"><td style="padding:0.4rem 0.6rem;"><span style="color:var(--orange);font-weight:700;">🟠 HIGH</span></td><td style="padding:0.4rem 0.6rem;color:var(--blue);">CMT</td><td style="padding:0.4rem 0.6rem;color:var(--text-dim);">u/misinfo_user</td><td style="padding:0.4rem 0.6rem;color:var(--text-dim);font-style:italic;">misinformation</td><td style="padding:0.4rem 0.6rem;text-align:right;color:var(--orange);font-family:var(--mono);font-weight:700;">48</td></tr>
+              <tr><td style="padding:0.4rem 0.6rem;"><span style="color:var(--green);font-weight:700;">🟢 LOW</span></td><td style="padding:0.4rem 0.6rem;color:var(--blue);">POST</td><td style="padding:0.4rem 0.6rem;color:var(--text-dim);">u/regular_user</td><td style="padding:0.4rem 0.6rem;color:var(--text-dim);font-style:italic;">off topic</td><td style="padding:0.4rem 0.6rem;text-align:right;color:var(--orange);font-family:var(--mono);font-weight:700;">8</td></tr>
+            </tbody>
+          </table>
+          <div style="margin-top:0.75rem;font-size:0.72rem;color:var(--text-dim);">
+            📋 <a href="https://www.reddit.com/r/modtriage_dev/wiki/modtriage" style="color:var(--blue);">Bookmark live queue (wiki)</a> · To refresh: use "Open ModTriage Dashboard" from the subreddit menu.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- New navigation features -->
+  <div class="feat-grid" style="margin-top:0;">
+    <div class="feat-cell">
+      <span class="feat-icon">🔔</span>
+      <div class="feat-ttl">Auto Critical Alerts</div>
+      <p class="feat-dsc">Scheduler fires every 5 minutes. If a Critical item is unactioned past 15 minutes, mods get an immediate mod-mail ping with a direct link to the content — even if no one is watching the queue.</p>
+    </div>
+    <div class="feat-cell">
+      <span class="feat-icon">📌</span>
+      <div class="feat-ttl">Bookmarkable Wiki Dashboard</div>
+      <p class="feat-dsc">Every dashboard update writes to a live wiki page at r/yoursubreddit/wiki/modtriage. Mods can bookmark it and always see the current priority queue without opening any menu.</p>
+    </div>
+    <div class="feat-cell">
+      <span class="feat-icon">🔍</span>
+      <div class="feat-ttl">View in ModTriage (per post)</div>
+      <p class="feat-dsc">New in v0.0.3 — mods reviewing any post or comment can click "View in ModTriage" from the context menu to instantly trigger a full dashboard refresh and jump to Mod Discussions.</p>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- INSTALL -->
+<div class="section">
+  <div class="eyebrow">Install ModTriage</div>
+  <h2>Live in <span class="ora">60 seconds</span><br>on any subreddit you mod.</h2>
+  <div class="setup">
+    <div class="setup-step"><div class="snum">1</div><div><div class="sttl">Visit the app listing</div><div class="sdsc">Go to <a href="https://developers.reddit.com/apps/modtriage" style="color:var(--blue);">developers.reddit.com/apps/modtriage</a> and click <strong>Add to community</strong>.</div></div></div>
+    <div class="setup-step"><div class="snum">2</div><div><div class="sttl">Select your subreddit</div><div class="sdsc">Choose any subreddit you moderate. ModTriage installs instantly — no configuration required to get started.</div></div></div>
+    <div class="setup-step"><div class="snum">3</div><div><div class="sttl">Open the dashboard</div><div class="sdsc">Go to your subreddit → click <strong>"..."</strong> → <strong>Open ModTriage Dashboard</strong>. The priority queue appears in Mod Discussions immediately.</div></div></div>
+    <div class="setup-step"><div class="snum">4</div><div><div class="sttl">Bookmark the wiki</div><div class="sdsc">Bookmark <span class="ic">r/yoursubreddit/wiki/modtriage</span> for instant access to the live priority queue anytime, from any device.</div></div></div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<footer>
+  <div class="foot-logo"><div class="foot-dot"></div><span>ModTriage</span></div>
+  <div class="foot-note">
+    Published on Reddit Developer Platform · v0.0.3 · May 2026<br>
+    <a href="https://developers.reddit.com/apps/modtriage" style="color:var(--orange);">developers.reddit.com/apps/modtriage</a>
+  </div>
+</footer>
+
+<script>
+  // ── Theme toggle ──────────────────────────────────────────────────────────
+  function toggleTheme() {
+    const html = document.documentElement;
+    const isDark = !html.classList.contains('light');
+    html.classList.toggle('light', isDark);
+    document.getElementById('themeIcon').textContent  = isDark ? '🌙' : '☀️';
+    document.getElementById('themeLabel').textContent = isDark ? 'Dark' : 'Light';
+    localStorage.setItem('mt-theme', isDark ? 'light' : 'dark');
+  }
+
+  // Restore saved preference on load
+  (function() {
+    const saved = localStorage.getItem('mt-theme');
+    if (saved === 'light') {
+      document.documentElement.classList.add('light');
+      document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('themeIcon').textContent  = '🌙';
+        document.getElementById('themeLabel').textContent = 'Dark';
+      });
+    }
+  })();
+
+  // ── Queue demo ────────────────────────────────────────────────────────────
+  const ct = { c:2, h:2, m:1, l:1 };
+  let total = 6;
+  const map = { c:'cc', h:'ch', m:'cm', l:'cl' };
+
+  function go(btn, p, approve) {
+    const item = btn.closest('.q-item');
+    btn.textContent = approve ? '✓' : '✕';
+    btn.disabled = true;
+    btn.style.opacity = '0.4';
+    setTimeout(() => {
+      item.classList.add('gone');
+      ct[p] = Math.max(0, ct[p] - 1);
+      total = Math.max(0, total - 1);
+      document.getElementById(map[p]).textContent = ct[p];
+      const badge = document.getElementById('tb');
+      if (total === 0) {
+        badge.textContent = '✓ All clear';
+        badge.style.cssText = 'background:rgba(70,209,96,0.1);color:#46D160;border-color:rgba(70,209,96,0.3)';
+      } else {
+        badge.textContent = total + ' items';
+      }
+    }, 180);
+  }
+</script>
+</body>
+</html>
